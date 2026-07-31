@@ -2,7 +2,7 @@
 cotacoes_onilx — base compartilhada de coleta de cotacoes cripto e macro.
 
 Extraido de kairos_ion/coletores/*.py para ser a fonte unica usada tanto
-pelo pipeline diario do Kairos ION quanto pelo InformeMensalOnilX v2.0.
+pelo pipeline diario do Kairos ION quanto pelo Carteira OnilX.
 
 Cada coletor segue o padrao:
 
