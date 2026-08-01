@@ -10,6 +10,7 @@ Endpoints usados:
 Documentacao: https://developers.binance.com/docs/derivatives/usds-margined-futures
 """
 import logging
+import time
 from typing import Optional
 
 import requests
@@ -36,50 +37,59 @@ def _coletar_par(symbol: str) -> Optional[dict]:
         }
     ou None em caso de falha.
     """
-    try:
-        # 1. Funding rate e mark price
-        resp_fr = requests.get(
-            f"{BASE_URL}/premiumIndex",
-            params={"symbol": symbol},
-            headers=HEADERS,
-            timeout=HTTP_TIMEOUT,
-        )
-        resp_fr.raise_for_status()
-        dados_fr = resp_fr.json()
+    max_tentativas = 3
+    for tentativa in range(1, max_tentativas + 1):
+        try:
+            # 1. Funding rate e mark price
+            resp_fr = requests.get(
+                f"{BASE_URL}/premiumIndex",
+                params={"symbol": symbol},
+                headers=HEADERS,
+                timeout=HTTP_TIMEOUT,
+            )
+            resp_fr.raise_for_status()
+            dados_fr = resp_fr.json()
 
-        funding_rate = float(dados_fr["lastFundingRate"])
-        mark_price = float(dados_fr["markPrice"])
+            funding_rate = float(dados_fr["lastFundingRate"])
+            mark_price = float(dados_fr["markPrice"])
 
-        # 2. Open Interest em contratos
-        resp_oi = requests.get(
-            f"{BASE_URL}/openInterest",
-            params={"symbol": symbol},
-            headers=HEADERS,
-            timeout=HTTP_TIMEOUT,
-        )
-        resp_oi.raise_for_status()
-        dados_oi = resp_oi.json()
+            # 2. Open Interest em contratos
+            resp_oi = requests.get(
+                f"{BASE_URL}/openInterest",
+                params={"symbol": symbol},
+                headers=HEADERS,
+                timeout=HTTP_TIMEOUT,
+            )
+            resp_oi.raise_for_status()
+            dados_oi = resp_oi.json()
 
-        oi_contratos = float(dados_oi["openInterest"])
+            oi_contratos = float(dados_oi["openInterest"])
 
-        # Para USDT-M futures, 1 contrato representa 1 unidade do ativo base.
-        # Logo, OI em USD = contratos * mark_price.
-        oi_usd = oi_contratos * mark_price
+            # Para USDT-M futures, 1 contrato representa 1 unidade do ativo base.
+            # Logo, OI em USD = contratos * mark_price.
+            oi_usd = oi_contratos * mark_price
 
-        return {
-            "funding_rate_atual": funding_rate,
-            "funding_rate_pct": funding_rate * 100,
-            "open_interest_contratos": oi_contratos,
-            "open_interest_usd": oi_usd,
-            "mark_price": mark_price,
-        }
+            return {
+                "funding_rate_atual": funding_rate,
+                "funding_rate_pct": funding_rate * 100,
+                "open_interest_contratos": oi_contratos,
+                "open_interest_usd": oi_usd,
+                "mark_price": mark_price,
+            }
 
-    except requests.RequestException as e:
-        logger.error(f"Binance [{symbol}]: falha de rede - {e}")
-        return None
-    except (KeyError, ValueError, TypeError) as e:
-        logger.error(f"Binance [{symbol}]: dados inesperados - {e}")
-        return None
+        except requests.RequestException as e:
+            logger.warning(
+                f"Binance [{symbol}]: falha de rede "
+                f"(tentativa {tentativa}/{max_tentativas}) - {e}"
+            )
+            if tentativa < max_tentativas:
+                time.sleep(10 * tentativa)
+        except (KeyError, ValueError, TypeError) as e:
+            logger.error(f"Binance [{symbol}]: dados inesperados - {e}")
+            return None
+
+    logger.error(f"Binance [{symbol}]: falha de rede apos {max_tentativas} tentativas")
+    return None
 
 
 def coletar() -> Optional[dict]:

@@ -26,6 +26,7 @@ Dependencias:
 """
 import io
 import logging
+import time
 from datetime import datetime, date, timedelta
 from typing import Optional, List
 from zoneinfo import ZoneInfo
@@ -70,13 +71,22 @@ TZ_ET = ZoneInfo("America/New_York")
 
 
 def _baixar_html(url: str, label: str) -> Optional[str]:
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=HTTP_TIMEOUT)
-        resp.raise_for_status()
-        return resp.text
-    except requests.RequestException as e:
-        logger.error(f"Farside [{label}]: falha HTTP em {url} - {e}")
-        return None
+    max_tentativas = 3
+    for tentativa in range(1, max_tentativas + 1):
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=HTTP_TIMEOUT)
+            resp.raise_for_status()
+            return resp.text
+        except requests.RequestException as e:
+            logger.warning(
+                f"Farside [{label}]: falha HTTP em {url} "
+                f"(tentativa {tentativa}/{max_tentativas}) - {e}"
+            )
+            if tentativa < max_tentativas:
+                time.sleep(10 * tentativa)
+
+    logger.error(f"Farside [{label}]: falha HTTP em {url} apos {max_tentativas} tentativas")
+    return None
 
 
 def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:

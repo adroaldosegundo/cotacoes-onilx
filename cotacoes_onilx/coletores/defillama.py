@@ -12,6 +12,7 @@ Coleta:
 Documentacao: https://defillama.com/docs/api
 """
 import logging
+import time
 from typing import Optional
 
 import requests
@@ -40,14 +41,26 @@ def _coletar_stablecoins() -> Optional[dict]:
             "var_7d_pct": float,
         }
     """
-    try:
-        resp = requests.get(
-            URL_STABLECOINS_CHART, headers=HEADERS, timeout=HTTP_TIMEOUT
-        )
-        resp.raise_for_status()
-        serie = resp.json()
-    except (requests.RequestException, ValueError) as e:
-        logger.error(f"DefiLlama [stablecoins]: falha - {e}")
+    max_tentativas = 3
+    serie = None
+    for tentativa in range(1, max_tentativas + 1):
+        try:
+            resp = requests.get(
+                URL_STABLECOINS_CHART, headers=HEADERS, timeout=HTTP_TIMEOUT
+            )
+            resp.raise_for_status()
+            serie = resp.json()
+            break
+        except (requests.RequestException, ValueError) as e:
+            logger.warning(
+                f"DefiLlama [stablecoins]: falha "
+                f"(tentativa {tentativa}/{max_tentativas}) - {e}"
+            )
+            if tentativa < max_tentativas:
+                time.sleep(10 * tentativa)
+
+    if serie is None:
+        logger.error(f"DefiLlama [stablecoins]: falha apos {max_tentativas} tentativas")
         return None
 
     if not isinstance(serie, list) or not serie:
@@ -101,14 +114,26 @@ def _coletar_tvl() -> Optional[dict]:
             "var_7d_pct": float,
         }
     """
-    try:
-        resp = requests.get(
-            URL_TVL_HISTORICO, headers=HEADERS, timeout=HTTP_TIMEOUT
-        )
-        resp.raise_for_status()
-        serie = resp.json()
-    except (requests.RequestException, ValueError) as e:
-        logger.error(f"DefiLlama [TVL]: falha - {e}")
+    max_tentativas = 3
+    serie = None
+    for tentativa in range(1, max_tentativas + 1):
+        try:
+            resp = requests.get(
+                URL_TVL_HISTORICO, headers=HEADERS, timeout=HTTP_TIMEOUT
+            )
+            resp.raise_for_status()
+            serie = resp.json()
+            break
+        except (requests.RequestException, ValueError) as e:
+            logger.warning(
+                f"DefiLlama [TVL]: falha "
+                f"(tentativa {tentativa}/{max_tentativas}) - {e}"
+            )
+            if tentativa < max_tentativas:
+                time.sleep(10 * tentativa)
+
+    if serie is None:
+        logger.error(f"DefiLlama [TVL]: falha apos {max_tentativas} tentativas")
         return None
 
     if not isinstance(serie, list) or not serie:

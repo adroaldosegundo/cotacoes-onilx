@@ -12,6 +12,7 @@ Coleta:
 Documentacao: https://mempool.space/docs/api/rest
 """
 import logging
+import time
 from typing import Optional
 
 import requests
@@ -30,13 +31,21 @@ _TIMEOUT = (5, HTTP_TIMEOUT)
 
 
 def _get(path: str) -> Optional[dict]:
-    for base in _BASE_URLS:
-        try:
-            resp = requests.get(f"{base}{path}", headers=HEADERS, timeout=_TIMEOUT)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException:
-            continue
+    max_tentativas = 3
+    for tentativa in range(1, max_tentativas + 1):
+        for base in _BASE_URLS:
+            try:
+                resp = requests.get(f"{base}{path}", headers=HEADERS, timeout=_TIMEOUT)
+                resp.raise_for_status()
+                return resp.json()
+            except requests.RequestException:
+                continue
+        if tentativa < max_tentativas:
+            logger.warning(
+                f"Mempool: falha em todos os mirrors para {path} "
+                f"(tentativa {tentativa}/{max_tentativas})"
+            )
+            time.sleep(10 * tentativa)
     return None
 
 
