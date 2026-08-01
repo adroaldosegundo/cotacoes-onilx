@@ -16,6 +16,7 @@ para mostrar a tendencia de sentimento.
 Documentacao: https://alternative.me/crypto/fear-and-greed-index/
 """
 import logging
+import time
 from typing import Optional
 
 import requests
@@ -41,21 +42,30 @@ def coletar() -> Optional[dict]:
             "data_referencia": str,        # YYYY-MM-DD
         }
     """
-    try:
-        # Pegamos 8 dias para garantir que o oitavo seja exatamente 7 dias atras
-        resp = requests.get(
-            BASE_URL,
-            params={"limit": 8},
-            headers=HEADERS,
-            timeout=HTTP_TIMEOUT,
-        )
-        resp.raise_for_status()
-        dados = resp.json()
-    except requests.RequestException as e:
-        logger.error(f"Fear & Greed: falha de rede - {e}")
-        return None
-    except ValueError as e:
-        logger.error(f"Fear & Greed: resposta nao-JSON - {e}")
+    max_tentativas = 3
+    dados = None
+    for tentativa in range(1, max_tentativas + 1):
+        try:
+            # Pegamos 8 dias para garantir que o oitavo seja exatamente 7 dias atras
+            resp = requests.get(
+                BASE_URL,
+                params={"limit": 8},
+                headers=HEADERS,
+                timeout=HTTP_TIMEOUT,
+            )
+            resp.raise_for_status()
+            dados = resp.json()
+            break
+        except (requests.RequestException, ValueError) as e:
+            logger.warning(
+                f"Fear & Greed: falha "
+                f"(tentativa {tentativa}/{max_tentativas}) - {e}"
+            )
+            if tentativa < max_tentativas:
+                time.sleep(10 * tentativa)
+
+    if dados is None:
+        logger.error(f"Fear & Greed: falha apos {max_tentativas} tentativas")
         return None
 
     serie = dados.get("data", [])

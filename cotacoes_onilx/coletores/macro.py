@@ -21,6 +21,7 @@ Dependencias adicionais:
     pip install yfinance
 """
 import logging
+import time
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -47,12 +48,24 @@ def _coletar_ticker(ticker: str, label: str) -> Optional[dict]:
         )
         return None
 
-    try:
-        # Pegamos 5 dias de historico para garantir pelo menos 2 dias uteis
-        # (cobre fins de semana e feriados americanos).
-        hist = yf.Ticker(ticker).history(period="5d", interval="1d")
-    except Exception as e:
-        logger.error(f"Macro [{label}]: falha ao buscar historico - {e}")
+    max_tentativas = 3
+    hist = None
+    for tentativa in range(1, max_tentativas + 1):
+        try:
+            # Pegamos 5 dias de historico para garantir pelo menos 2 dias uteis
+            # (cobre fins de semana e feriados americanos).
+            hist = yf.Ticker(ticker).history(period="5d", interval="1d")
+            break
+        except Exception as e:
+            logger.warning(
+                f"Macro [{label}]: falha ao buscar historico "
+                f"(tentativa {tentativa}/{max_tentativas}) - {e}"
+            )
+            if tentativa < max_tentativas:
+                time.sleep(10 * tentativa)
+
+    if hist is None:
+        logger.error(f"Macro [{label}]: falha ao buscar historico apos {max_tentativas} tentativas")
         return None
 
     if hist is None or hist.empty or len(hist) < 2:
