@@ -8,6 +8,7 @@ Endpoint principal usado: /coins/markets
 Documentacao: https://docs.coingecko.com/reference/coins-markets
 """
 import logging
+import time
 from typing import Optional
 
 import requests
@@ -60,26 +61,35 @@ def coletar() -> Optional[dict]:
     ids_str = ",".join(a["coingecko_id"] for a in ATIVOS.values())
     id_para_simbolo = {v["coingecko_id"]: k for k, v in ATIVOS.items()}
 
-    try:
-        resp = requests.get(
-            f"{BASE_URL}/coins/markets",
-            params={
-                "vs_currency": "usd",
-                "ids": ids_str,
-                "price_change_percentage": "24h,7d,30d",
-                "per_page": 250,
-                "page": 1,
-            },
-            headers=HEADERS,
-            timeout=HTTP_TIMEOUT,
-        )
-        resp.raise_for_status()
-        dados_usd = resp.json()
-    except requests.RequestException as e:
-        logger.error(f"CoinGecko: falha em /coins/markets - {e}")
-        return None
-    except ValueError as e:
-        logger.error(f"CoinGecko: resposta nao-JSON em /coins/markets - {e}")
+    max_tentativas = 3
+    dados_usd = None
+    for tentativa in range(1, max_tentativas + 1):
+        try:
+            resp = requests.get(
+                f"{BASE_URL}/coins/markets",
+                params={
+                    "vs_currency": "usd",
+                    "ids": ids_str,
+                    "price_change_percentage": "24h,7d,30d",
+                    "per_page": 250,
+                    "page": 1,
+                },
+                headers=HEADERS,
+                timeout=HTTP_TIMEOUT,
+            )
+            resp.raise_for_status()
+            dados_usd = resp.json()
+            break
+        except (requests.RequestException, ValueError) as e:
+            logger.warning(
+                f"CoinGecko: falha em /coins/markets "
+                f"(tentativa {tentativa}/{max_tentativas}) - {e}"
+            )
+            if tentativa < max_tentativas:
+                time.sleep(10 * tentativa)
+
+    if dados_usd is None:
+        logger.error(f"CoinGecko: falha em /coins/markets apos {max_tentativas} tentativas")
         return None
 
     # -----------------------------------------------------------------------
