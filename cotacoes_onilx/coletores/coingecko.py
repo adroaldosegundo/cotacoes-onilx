@@ -22,7 +22,7 @@ BASE_URL = "https://api.coingecko.com/api/v3"
 HEADERS = {"User-Agent": USER_AGENT, "Accept": "application/json"}
 
 
-def coletar() -> Optional[dict]:
+def coletar(extra_ativos: Optional[dict] = None) -> Optional[dict]:
     """
     Coleta cotacoes, variacoes e estrutura global de mercado.
 
@@ -52,14 +52,21 @@ def coletar() -> Optional[dict]:
 
     Retorna None se a coleta principal (ativos) falhar.
     Se apenas a coleta global falhar, retorna estrutura com global vazio.
+
+    `extra_ativos` (mesmo formato de ATIVOS: {simbolo: {"nome", "coingecko_id"}})
+    mescla ativos adicionais a esta chamada -- usado pela Carteira OnilX para
+    buscar o preco da watchlist de cada assessor numa unica requisicao, sem
+    duplicar chamada a API. Sem argumento, comportamento identico ao anterior
+    (so o universo padrao de ATIVOS) -- e o que o Kairos ION continua usando.
     """
     resultado = {"ativos": {}, "global": {}}
+    ativos_universo = {**ATIVOS, **(extra_ativos or {})}
 
     # -----------------------------------------------------------------------
     # 1. Cotacoes em USD com variacoes
     # -----------------------------------------------------------------------
-    ids_str = ",".join(a["coingecko_id"] for a in ATIVOS.values())
-    id_para_simbolo = {v["coingecko_id"]: k for k, v in ATIVOS.items()}
+    ids_str = ",".join(a["coingecko_id"] for a in ativos_universo.values())
+    id_para_simbolo = {v["coingecko_id"]: k for k, v in ativos_universo.items()}
 
     max_tentativas = 3
     dados_usd = None
@@ -165,6 +172,27 @@ def coletar() -> Optional[dict]:
         f"e dados globais ({'ok' if resultado['global'] else 'vazio'})"
     )
     return resultado
+
+
+def buscar_moedas(query: str, limite: int = 8) -> list[dict]:
+    """Busca moedas no CoinGecko por nome/simbolo (endpoint /search), para
+    a tela de watchlist da Carteira OnilX. Lista vazia em qualquer falha --
+    e uma busca interativa, nao vale a pena repetir tentativas."""
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/search",
+            params={"query": query},
+            headers=HEADERS,
+            timeout=HTTP_TIMEOUT,
+        )
+        resp.raise_for_status()
+        dados = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        logger.warning(f"CoinGecko: falha em /search para '{query}' - {e}")
+        return []
+
+    moedas = dados.get("coins", [])[:limite]
+    return [{"id": m["id"], "symbol": m["symbol"], "name": m["name"]} for m in moedas]
 
 
 if __name__ == "__main__":
