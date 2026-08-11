@@ -4,9 +4,18 @@ Agregador: roda todos os coletores e consolida o resultado.
 Equivalente ao coletar_todos_dados() do kairos_ion/Ion.py, mas generico
 (nao amarrado ao pipeline de relatorio diario) e com cache por coletor,
 para uso interativo (dashboard aberto varias vezes ao dia).
+
+Coletores rodam em paralelo (thread por coletor) -- sao 7 chamadas de
+rede independentes, sem dependencia entre si; rodar em sequencia soma os
+tempos de todos (medido: ~17s com tudo ok, ate ~45s com CoinGecko
+rate-limited fazendo retry), enquanto em paralelo o tempo total fica perto
+do coletor mais lento sozinho. Falha de um nao afeta os outros nos dois
+modos.
 """
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from typing import Optional, Sequence
 
 from .cache import com_cache
 from .coletores import binance, coingecko, defillama, farside, fear_greed, macro, mempool
@@ -41,9 +50,25 @@ _COLETAR_CACHEADO = {
 }
 
 
-def coletar_todas() -> dict:
+def _coletar_um(nome: str):
+    logger.info(f">>> Coletando: {nome}")
+    try:
+        return _COLETAR_CACHEADO[nome]()
+    except Exception as e:
+        logger.error(f"{nome}: excecao nao tratada — {e}", exc_info=True)
+        return None
+
+
+def coletar_todas(apenas: Optional[Sequence[str]] = None) -> dict:
     """
-    Executa todos os coletores em sequencia. Falha de um nao quebra os outros.
+    Executa os coletores em paralelo. Falha de um nao quebra os outros.
+
+    `apenas`: nomes dos coletores a rodar (subconjunto de _COLETORES). Default
+    None roda os 7 -- o pipeline diario do Kairos ION usa todos. Consumidores
+    interativos que so leem 1-2 fontes (ex.: Carteira OnilX so usa `coingecko`
+    e `macro`, nunca mempool/fear_greed/defillama/farside/binance) devem
+    restringir aqui: cada coletor a mais e uma chamada de rede que ninguem
+    vai ler, pagando latencia (e risco de rate limit) por nada.
 
     Estrutura de retorno identica ao coletar_todos_dados() do kairos_ion:
         {
@@ -51,9 +76,14 @@ def coletar_todas() -> dict:
             "dados": {"coingecko": {...} | None, ...},
             "status_coleta": {"coingecko": "ok" | "falhou", ...},
         }
+    (com apenas os coletores pedidos, quando `apenas` e informado)
     """
+    coletores = _COLETORES if apenas is None else [
+        (nome, modulo) for nome, modulo in _COLETORES if nome in apenas
+    ]
+
     timestamp = datetime.now().isoformat()
-    logger.info(f"Iniciando coleta consolidada em {timestamp}")
+    logger.info(f"Iniciando coleta consolidada em {timestamp} ({len(coletores)} fontes)")
 
     resultado = {
         "timestamp_coleta": timestamp,
@@ -61,18 +91,19 @@ def coletar_todas() -> dict:
         "status_coleta": {},
     }
 
-    for nome, _ in _COLETORES:
-        logger.info(f">>> Coletando: {nome}")
-        try:
-            dados = _COLETAR_CACHEADO[nome]()
-        except Exception as e:
-            logger.error(f"{nome}: excecao nao tratada — {e}", exc_info=True)
-            dados = None
-        resultado["dados"][nome] = dados
-        resultado["status_coleta"][nome] = "ok" if dados is not None else "falhou"
+    if not coletores:
+        return resultado
+
+    with ThreadPoolExecutor(max_workers=len(coletores)) as executor:
+        futuros = {executor.submit(_coletar_um, nome): nome for nome, _ in coletores}
+        for futuro in futuros:
+            nome = futuros[futuro]
+            dados = futuro.result()
+            resultado["dados"][nome] = dados
+            resultado["status_coleta"][nome] = "ok" if dados is not None else "falhou"
 
     sucessos = sum(1 for s in resultado["status_coleta"].values() if s == "ok")
-    total = len(_COLETORES)
+    total = len(coletores)
     logger.info(f"Coleta concluida: {sucessos}/{total} fontes com sucesso")
     return resultado
 

@@ -93,7 +93,12 @@ def coletar(extra_ativos: Optional[dict] = None) -> Optional[dict]:
                 f"(tentativa {tentativa}/{max_tentativas}) - {e}"
             )
             if tentativa < max_tentativas:
-                time.sleep(10 * tentativa)
+                # Backoff curto: consumidor interativo (dashboard) nao pode
+                # pagar 10s/20s de sleep por tentativa (medido: 3 tentativas
+                # com o valor antigo somavam 30s so de espera, bloqueando
+                # coletar_todas() inteiro). 2s/4s ainda da espaco pro rate
+                # limit (429) aliviar sem travar a UI.
+                time.sleep(2 * tentativa)
 
     if dados_usd is None:
         logger.error(f"CoinGecko: falha em /coins/markets apos {max_tentativas} tentativas")
